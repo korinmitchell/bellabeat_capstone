@@ -1,1 +1,1 @@
-# bellabeat_capstone
+Bellabeat helps women better understand their health, habits, and daily wellness through smart data insights. This case study uses public FitBit data to explore how users interact with non-Bellabeat devices, providing guidance for the company’s marketing and product strategies. The findings focus on the Leaf Chakra, a wellness tracker that blends natural design with technology to monitor activity, sleep, stress, and mindfulness.
