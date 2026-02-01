@@ -1,0 +1,1138 @@
+---
+title: "Bellabeat Capstone (SQL + R)"
+author: "Colin Mitchell"
+date: "January 26th , 2026"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# Load your libraries here
+library('tidyverse')
+library('readr')
+```
+
+...  
+
+## Google Analytics Case Study: Bellabeat  
+
+
+
+#### Company Introduction
+Bellabeat helps women better understand their health, habits, and daily wellness through smart device data insights.  
+
+
+
+### Business Task
+This case study uses public FitBit data to explore how users interact with non-Bellabeat devices, providing guidance for Bellabeat's marketing and product strategies. 
+The findings focus on how to better market the Leaf Chakra Bellabeat product, a wellness tracker worn as a necklace or clip.  
+
+
+#### Questions:
+* What are trends in FitBit device usage?
+* How do these apply to Bellabeat customers?
+* How can these insights be used to elevate Bellabeat's marketing approach?  
+
+
+#### Citations
+* The Lancet-Public Health: Daily Steps and Health Outcomes in Adults. [link](https://www.thelancet.com/journals/lanpub/article/PIIS2468-2667(25)00164-1/fulltext)
+* Garmin-Sleep HRV Status: Helps understand how stress is calculated from heart rate data. [link](https://www.garmin.com/en-US/garmin-technology/health-science/hrv-status/)
+* World Health Organization: Weekly Health Habits. [link](https://www.who.int/initiatives/behealthy/physical-activity)
+* FitBit API documentation: Used to understand sleep_score meaning. [link](https://dev.fitbit.com/build/reference/web-api/sleep-v1)
+* Hello Clue: "What your heart can tell you about your menstrual cycle" [link](https://helloclue.com/articles/menstrual-cycle/what-your-heart-can-tell-you-about-your-menstrual-cycle)  
+* SPIKE: "Understanding HRV Metrics" [link](https://www.spikeapi.com/blog/understanding-hrv-metrics-a-deep-dive-into-sdnn-and-rmssd#:~:text=for%20healthy%20adults.-,RMSSD:%20Root%20Mean%20Square%20of%20Successive%20Differences,from%2027%20to%2072%20ms.)  
+* Terra Research: "Descriptive HRV using Z scores" [link](https://tryterra.co/research/descriptive-hrv-using-z-scores)  
+
+
+...  
+
+
+### Data Prep  
+#### Source Data  
+This case study used FitBit Fitness Tracker Data (CC0: Public Domain) which was collected from 35 consenting FitBit device users between 3/12/2016 ~ 5/12/2016. Out of these 35 users, 30 users were eligible for recording personal sleep, weight loss and heart rate data. The data set is available via Mobius' Kaggle page  [link](https://www.kaggle.com/datasets/arashnic/fitbit). I personally used sleep (minuteSleep_merged), general activity (dailyActivity_merged.csv), and heart rate (heartrate_seconds_merged.csv).  
+
+...  
+
+
+#### Limitations
+This data has inconsistencies in user data with some users only reporting device usage in the first month timing data set. April ~ May data only included 33 of the 35 users' data, so I focused my efforts on the March ~ April csv files. Source data set is from a survey from 2016 so it is a bit outdated. Since this case study is aiming to assist in further developing the marketing strategy of Bellabeat (a women's health-tech company), it would have been great to have access to demographic data like gender and age for each user, but this was not available. Data including a larger population and this demographic info would be more accurately conclusive. Findings from this case study are interpretations of data visualizations that I created.  
+
+
+...  
+
+
+#### Problem Users
+There were many instances when I contemplated deleting rows of anomalous user data, but decided to not exclude them to show varying device usage behavior.  
+
+
+* A segment of users (approx. 14% of the 35 users) who record high sedentary time and extremely low caloric burn were identified. This suggests the device is being removed for most of the day, leading to 'incomplete' health profiles.
+* User 707744171: This user only logged sleep 8 times and the times recorded times were all really short, maximum 1 hour and 45 minute sessions.
+* User 4388161847: This user only logged 8 days of activity and all but 1 day were completely inactive (sedentary minutes were 1,440). However, the one active day log had no light, fair or very active time recorded.  
+
+...  
+
+
+### Clean Up  
+
+#### SQL Approach
+To easily save the data cleaning process, I decided to use SQL via BigQuery. After cleaning, the updated clean csv file was then queried again to get tables to be used in R for further analysis and visualization.
+
+I ran multiple queries to weed out any null values and duplicate entries from the original csv files.
+The following queries were run for all 3 original FitBit csv files with varying WHERE filters based on column names.  
+
+_Checking for NULL Values Example:_
+
+```sql
+SELECT
+  *
+FROM
+  `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016`
+WHERE
+  Id IS NULL
+  OR ActivityDate IS NULL
+  OR TotalDistance IS NULL
+  OR TotalSteps IS NULL
+  OR TrackerDistance IS NULL
+  OR LoggedActivitiesDistance IS NULL
+  OR VeryActiveDistance IS NULL
+  OR VeryActiveMinutes IS NULL
+  OR ModeratelyActiveDistance IS NULL
+  OR LightActiveDistance IS NULL
+  OR LightlyActiveMinutes IS NULL
+  OR SedentaryActiveDistance IS NULL
+  OR SedentaryMinutes IS NULL
+  OR FairlyActiveMinutes IS NULL
+  OR Calories IS NULL
+  ```  
+  
+_Checking for Duplicate Entries Example:_
+
+```sql
+
+SELECT 
+ DISTINCT Id,
+FROM
+  `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016`
+
+```
+
+
+Thankfully, there were no issues regarding null values and duplicates within all 3 of the original FitBit csv files for March ~ April 2016.  
+  
+The other issue I frequently ran into was each original csv file's time log. The datetime format on the original files were not detectable by BigQuery when initially uploaded.  
+
+I manually set these time log columns as string type and used queries to correctly re-format them as datetime data types. After conversion, these correctly formatted tables were saved as new "clean" versions of the csv files and used for further analysis in BigQuery.
+
+*Datetime Conversion Query Example:*
+
+```sql
+WITH clean_time AS (
+  SELECT
+    id,
+    --This will change our sleep log date-time format into 24 hour format while avoiding null values
+    COALESCE(
+      SAFE.PARSE_DATETIME('%m/%e/%Y %H:%M:%S', datetime_string), SAFE.PARSE_DATETIME('%m/%e/%Y %H:%M:%S %p', datetime_string)  
+    ) AS time_log,
+    sleep_score,
+    SAFE_CAST(sleep_log_id AS INT64) sleep_id
+  FROM
+    `colin-bellabeat-capstone.bellabeat.sleep_logs`
+)
+
+SELECT
+  id,
+  time_log,
+  sleep_score,
+  sleep_id
+FROM
+  `clean_time`
+
+```  
+
+...  
+
+### SQL Phase 1: User Activity Profiles  
+
+
+#### 1.) Aggregate Data Fields:  
+
+Solved for averages of total daily steps, calories burnt and active minutes.  
+Helped with side-by-side quick analysis of differences in each user's FitBit usage behavior.  
+
+
+
+#### 2.) Categorize Users:  
+
+Divide the 35 users into separate sub groups by similar behavior patterns  
+
+* When they are most active
+* Higher or Lower average step count per day
+* Average Calories Burnt per day
+
+
+
+#### 3.) Identify Device Benefits for each User Type:  
+
+Evaluate how specific FitBit usage trends reveal unmet user needs, allowing us to position the Leaf Chakra as a solution for both habit-forming and correcting unhealthy behaviors.
+
+* Can unhealthy usage patterns be angles for new marketing strategies?
+* Are certain category users easily guided to more healthy behavior through incentives from Leaf device?  
+
+...  
+
+### Activity Summary Query Breakdown  
+
+In the first section of my query, as the objective stated, many columns were aggregated to check how vigorous each user's activity logs were. Next was a section to see how active each user was per week to show compliance with the World Health Organization's recommended weekly health habits [(click here for more details)](https://www.who.int/initiatives/behealthy/physical-activity).  
+
+Further usage details were broken down by week to match the recommended W.H.O. approach when tracking healthy activity progress. These were details like how many average days in a week was a user active (filtering by sedentaryMinutes<1440 for example). 
+
+
+```sql
+WITH user_setup AS (
+  SELECT
+  --Grabbing weekly aggregate data to check the intensity levels of user activities
+    user.Id,
+    ROUND((AVG(VeryActiveMinutes) * 7), 2) AS wk_avg_very_min,
+    ROUND((AVG(FairlyActiveMinutes) * 7), 2) AS wk_avg_fairly_min,
+    ROUND((AVG(LightlyActiveMinutes) * 7), 2) AS wk_avg_lightly_min,
+    ROUND(AVG(user.TotalSteps), 2) AS avg_daily_steps,
+    ROUND(AVG(user.Calories), 2) AS avg_daily_cal
+  FROM
+    `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016` AS user
+  GROUP BY
+    user.Id
+),
+
+active_usage_details AS (
+  SELECT
+  --Slightly more detailed info on how active users were on an average weekly cycle
+    details.Id,
+    ROUND(SAFE_DIVIDE(COUNT(DISTINCT ActivityDate), 31) * 7, 2) AS avg_wk_active_days,
+    ROUND(SAFE_DIVIDE(SAFE_DIVIDE(COUNT(DISTINCT ActivityDate), 31) * 7, 7), 3) AS wk_active_rate
+  FROM
+    `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016` AS details
+  WHERE
+  --Filter for users who were truly inactive while wearing the fitbit
+    SedentaryMinutes < 1440
+    AND Calories > 0
+    AND TotalSteps > 20
+  GROUP BY
+    details.Id
+),
+
+```  
+
+...  
+
+#### Lancet Health Ratings  
+
+Using the Lancet's study on daily step count's effect on all-cause mortality [(click here for more details)](https://www.thelancet.com/journals/lanpub/article/PIIS2468-2667(25)00164-1/fulltext), categorization of users based on average daily step count was setup. This was 1 portion of the main query where all other aggregations were called for the new table to be used in later R scripts regarding user activity.
+
+```sql
+
+SELECT
+  user_setup.Id,
+  /*Creates user labels compliant with Lancet health study claiming 7,000+ 
+  steps a day gives 47% lower risk of all-cause mortality*/
+  CASE
+    WHEN user_setup.avg_daily_steps >= 7000 THEN 'Excellent Health'
+    WHEN user_setup.avg_daily_steps BETWEEN 5000 AND 7000 THEN 'Great Health'
+    WHEN user_setup.avg_daily_steps BETWEEN 2000 AND 5000 THEN 'Decent Health'
+    WHEN user_setup.avg_daily_steps < 2000 THEN 'Health At Risk'
+    END AS lancet_rating,
+  user_setup.wk_avg_very_min,
+  user_setup.wk_avg_fairly_min,
+  user_setup.avg_daily_steps,
+  user_setup.avg_daily_cal,
+
+```  
+...  
+
+#### Active Days of the Week  
+
+Days of the week were taken into account for not only every user's most active weekday, but to see if 1 particular day of the week had the most calories burnt across all active users. This also would allow us to see which days the healthiest users are most active, as well as the most common cheat day across all users.  
+
+Weekday with most / least calories burnt was a completely separate query using the same March ~ April user activity dataset.
+
+_Most Vigorous Activity Weekday by User Example:_
+```sql
+
+),
+
+active_day_check AS (
+  SELECT
+    Id,
+    --Converting ActivityDate column into days of the week and counting specific days as heavy activity days via CASE
+    FORMAT_DATE('%a', ActivityDate) AS day_of_wk,
+    CASE
+      WHEN SedentaryMinutes < 1440
+      AND TotalSteps > 7000 
+      AND Calories > 1500
+      THEN 1 else 0 END AS active_day_count
+  FROM
+    `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016`
+),
+
+active_day_consistency AS (
+  SELECT
+    Id,
+    day_of_wk,
+    --Create SUM function that tallies up all heavy activty days per user
+    SUM(active_day_count) AS active_num
+  FROM
+    `active_day_check`
+  GROUP BY
+    Id,
+    day_of_wk
+),
+
+day_rank AS (
+  SELECT
+    *,
+    --Checks for the #1 heaviest active day of the week per user
+    ROW_NUMBER() OVER(PARTITION BY Id ORDER BY active_num DESC) AS consistency_rank
+  FROM
+    `active_day_consistency`
+),
+
+
+```  
+
+...  
+
+
+_Weekday with Most / Least Calories Burnt Example:_  
+
+```sql
+
+WITH day_count AS (
+
+SELECT
+  Id,
+  Calories,
+  TotalSteps,
+  ActivityDate,
+  SedentaryMinutes,
+  --Converting ActivityDate column into days of the week
+  FORMAT_DATE('%a', ActivityDate) AS day_of_week,
+FROM
+  `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016`
+)
+
+SELECT
+  day_of_week,
+  SUM(Calories) AS calories_by_weekday
+  
+FROM 
+  `day_count`
+WHERE
+  SedentaryMinutes < 1440
+  AND TotalSteps > 7000 
+  AND Calories > 1500
+GROUP BY
+  day_of_week
+
+
+```  
+...  
+
+
+#### Join Tables
+
+Among the temp tables of this main query for user activity, there were a few stand alone variable columns that were made available to the main query via 2 Full Outer Joins.  
+
+Some users reported no "heavy" or "vigorous" activity on their FitBit device, so a CASE chunk was setup to catch any NULL values and replace them with "No Heavy Activity".  
+
+As previously mentioned in the Limitations section, user 4388161847 had many 0 values for columns in their user activity report, so I also created a fix to alleviate any NULL values that would otherwise be generated.  
+
+Finally, I filtered all the main query by the number 1 day of the week with the most intense activity. This helped depict common ground amongst all users for what day of the week they were willing to push their limits the most.  
+
+
+```sql
+)
+
+SELECT
+  user_setup.Id,
+  /*Creates user labels compliant with Lancet health study claiming 7,000+ 
+  steps a day gives 47% lower risk of all-cause mortality*/
+  CASE
+    WHEN user_setup.avg_daily_steps >= 7000 THEN 'Excellent Health'
+    WHEN user_setup.avg_daily_steps BETWEEN 5000 AND 7000 THEN 'Great Health'
+    WHEN user_setup.avg_daily_steps BETWEEN 2000 AND 5000 THEN 'Decent Health'
+    WHEN user_setup.avg_daily_steps < 2000 THEN 'Health At Risk'
+    END AS lancet_rating,
+  user_setup.wk_avg_very_min,
+  user_setup.wk_avg_fairly_min,
+  user_setup.avg_daily_steps,
+  user_setup.avg_daily_cal,
+  --Preparing label for users with no 'heavy' activity recorded
+  CASE
+    WHEN day_rank.active_num = 0 OR day_rank.active_num IS NULL
+    THEN 'No Heavy Activity' 
+    ELSE day_rank.day_of_wk
+    END AS heaviest_active_day,
+  day_rank.active_num AS heavy_active_count,
+  
+  --Using IFNULL to avoid User 4388161847's inactive 0 data
+  IFNULL(active_usage_details.wk_active_rate, 0) AS wk_active_rate,
+  IFNULL(active_usage_details.avg_wk_active_days, 0) AS avg_wk_active_days
+  
+FROM
+  `user_setup`
+FULL OUTER JOIN
+  `active_usage_details` ON user_setup.Id = active_usage_details.Id
+FULL OUTER JOIN
+  `day_rank` ON user_setup.Id = day_rank.Id
+WHERE
+  day_rank.consistency_rank = 1
+
+```  
+
+...  
+
+#### Usage Rate and User Potentials  
+
+One more separate query used the user activity dataset to find all the different average varieties of activity (lightly, fairly, and very) per user divided against 1,440 minutes (total minutes in 1 day), returning the daily usage rate of the FitBit device.  
+
+This query was later used in R for further transformation, solving for activity score and average weekly mvpa (Moderate-to-Vigorous Physical Activity). These metrics were then used to set up activity score and device usage efficiency labels.  
+
+
+_Device Usage Rate Query Example:_  
+
+
+```sql
+
+WITH quick_avg AS (
+  SELECT
+  *,
+  --Establish daily averages per each user
+  AVG(Calories) OVER(PARTITION BY Id) AS daily_avg_calories,
+  AVG(SedentaryMinutes) OVER(PARTITION BY Id) AS daily_sedentary_minutes
+  FROM
+  `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016`
+
+), add_sedentary AS (
+  SELECT
+    *,
+    --Calculate for total non-sedentary usage time 
+    (1440 - daily_sedentary_minutes) AS potential_active_minutes
+  FROM
+    `quick_avg`
+
+)
+
+SELECT 
+  Id,
+  --Calculate usage time average and percentage vs inactivity
+  ROUND(AVG(potential_active_minutes), 2) AS avg_potential_min,
+  ROUND(SAFE_DIVIDE(AVG(potential_active_minutes), 1440), 2) AS usage_rate
+FROM `add_sedentary`
+GROUP BY Id
+
+```  
+
+...
+
+
+__R Script Examples:__  
+
+_Weekly mvpa Mins, Activity Score and Efficiency Labels:_  
+
+
+```{r}
+
+# Create data frame for the fitbit usage percentage
+device_usage <- readr::read_csv('fitbit_usage_rate.csv')
+user_activity <- readr::read_csv('user_activity_summary.csv')
+
+# Create new joint data frame from join of device usage and user activity
+usage_vs_activity <- device_usage %>% 
+  
+# Join the 2 tables prioritizing the data from the device usage data frame  
+  left_join(user_activity, by = c('Id' = 'Id'))%>% 
+  
+# Ensures we are grouping the new table by the same users in both csv's
+  group_by(Id) %>% 
+  
+# Combine fairly active and very active minutes per user    
+  mutate(wk_avg_mvpa = 
+           wk_avg_fairly_min + wk_avg_very_min
+           ) %>% 
+
+# Calculate the activity score, how truly active a user is with their potential 
+  mutate(activity_score = ifelse( usage_rate > 0,
+           wk_avg_mvpa / usage_rate)) %>% 
+ 
+# Set up activity labels based on activity score for color segmentation   
+  mutate(score_labels = case_when(
+    activity_score > 300 ~ 'High Efficiency',
+    activity_score < 50 ~ 'Low Efficiency',
+    activity_score <= 300 & activity_score >= 50 ~ 'Decent Efficiency',
+    TRUE ~ 'No Active Minutes'
+  ))
+```   
+
+...  
+
+
+### SQL Phase 2: Physiological & Wellness Deep-Dive  
+
+
+#### 1.) Clean & Transform Physiological Logs:  
+
+Isolate "True Sleep" sessions (where sleep_score = 1) and join them with heart-rate-derived stress metrics.  
+
+* Technical Consolidation: Merged disparate Sleep and Stress logs to create a high-density data set for the 9 users present in both studies.
+* Data Funnel Management: Accounted for the reduction in sample size (from 35 to 9 users) to ensure the integrity of the cross-metric analysis.  
+
+
+#### 2.) Multidimensional Correlation Analysis:  
+
+Utilize layered visualization (Color/Alpha) to map the relationship between daytime strain and nighttime recovery.  
+
+* Visualizing the Intersection: Using histograms to display average deep sleep hours while using color scales for stress and alpha-transparency for physical intensity.
+* The "Stress-Sleep" Gap: Determining if high-intensity activity effectively offsets high stress to produce quality deep sleep, or if high stress prevents "True Sleep" regardless of activity.  
+
+#### 3.) Proactive Health & Menstrual Cycle Support:  
+
+Evaluate how these physiological markers can be used to anticipate and manage different phases of the menstrual cycle through the lens of nervous system strain.  
+
+* HRV & Luteal Phase Tracking: Utilizing Heart Rate Variability (HRV) as a primary stress metric. Identifying if a significant drop in HRV—combined with diminished deep sleep—serves as a physiological "early warning system" for the luteal phase and the onset of menstrual symptoms.
+* Proactive Wellness Guidance: Transitioning the Bellabeat value proposition from "reactive tracking" to "proactive anticipation." By detecting these stress-sleep correlations, the app can suggest "deload" days or enhanced hydration strategies before the user experiences physical discomfort.  
+
+...  
+
+
+#### Sleep Query Breakdown  
+
+While the objective mentions the combination of sleep and heart rate (stress proxy) data sets, initially, after looking at sleep logs, I decided it would be a good start to understand each of the 23 out of 35 users' average night's sleep (in hours). However, after understanding the FitBit sleep_score metric via FiBit API Documentation [(click here for more details)](https://dev.fitbit.com/build/reference/web-api/sleep-v1) (1 being truly asleep, 2 being "restless sleep", and 3 being awake), I realized I needed to isolate the total restorative sleep time for the users instead of including all the different sleep score time together.  
+
+After each time log difference was calculated, each sleep session (sleep_id), was aggregated together into buckets, while also avoiding calculations of tail end sleep sessions to the next sleep session (Having clause).  
+
+Lastly, sleep session time bucket values were aggregated to understand each user's best and average sleep session hours.  
+
+_Sleep Amount Calculation Query Example:_
+
+```sql
+
+WITH sleep_log_duration AS (
+  SELECT
+    id,
+    sleep_id,
+    sleep_score,
+--Calculate the difference in time between sleep logs, while avoiding differences > 1 minute
+--Time between Sleep records is typically 1 minute, this code checks if diff is =1 min or < 1 min
+    LEAST(
+      DATETIME_DIFF(
+      LEAD(time_log) OVER(PARTITION BY id, sleep_id ORDER BY time_log), time_log, MINUTE), 1) AS duration
+  FROM
+    `colin-bellabeat-capstone.bellabeat.clean_sleep_logs`
+),
+
+
+sleep_bucket AS (
+  SELECT
+    id,
+    sleep_id,
+--Bucket: Add up all of the 'sleep_score = 1' sleep time per session in hours
+    SUM(
+      CASE
+        WHEN sleep_score = 1 THEN duration
+        ELSE 0
+      END) / 60.0 AS hr_sleep_per_session
+  FROM
+    `sleep_log_duration`
+
+  GROUP BY
+    id,
+    sleep_id
+--Remove sleep sessions that are data errors
+  HAVING
+    hr_sleep_per_session < 16
+    
+
+)
+
+SELECT 
+  id,
+--Aggregating hours slept per session to find average and best PR for sleep hours per user
+  ROUND(AVG(hr_sleep_per_session), 2) AS avg_nightly_sleep_hours,
+  ROUND(MAX(hr_sleep_per_session), 2) AS best_sleep_hours
+FROM 
+  `sleep_bucket`
+GROUP BY
+id
+
+```  
+
+...  
+
+
+#### Number of Sleep Session Per User  
+
+One quick separate query was made to simply count the number of sessions per user that also had data in the activity data table. All of this data was then funneled into the stress proxy heart rate data set until reaching the final 9 users.
+
+_Sleep Session Count Query Example:_  
+
+```sql
+
+SELECT
+  a.id,
+  COUNT(DISTINCT sleep_id) AS num_sleep_sessions
+FROM
+  `colin-bellabeat-capstone.bellabeat.clean_sleep_logs` AS a
+INNER JOIN
+  `colin-bellabeat-capstone.bellabeat.daily_active_mar-apr_2016` AS b
+  ON a.id = b.id
+
+GROUP BY
+  a.id
+
+``` 
+
+...
+
+
+#### Heart Rate (Stress Proxy) Query Breakdown  
+
+Approaching the heart rate data was a bit challenging, but after researching Garmin's device breakdown of how Heart Rate Variability is used to evaluate stress [(click here for more details)](https://www.garmin.com/en-US/garmin-technology/health-science/hrv-status/), it became clear that the first step was to change the data set's heart rate check time interval from seconds to milliseconds in order to calculate Heart Rate Variability (or **HRV**). Milliseconds is standard for measuring IBI or interbeat-intervals.  
+
+_Interbeat Interval Difference Query Example:_  
+
+```sql
+
+WITH get_ibi AS (
+--Convert heart rate to interbeat intervals in milliseconds
+SELECT
+  id,
+  time_log,
+  (6000.0/NULLIF(heart_rate, 0)) AS ibi_ms
+FROM
+  `colin-bellabeat-capstone.bellabeat.clean_heart_rate_mar-apr` AS ibi
+),
+
+
+heartbeat_diff AS (
+-- Calculate the difference in time between a user's heartbeat to their next heartbeat
+SELECT
+  id,
+  time_log,
+  ibi_ms - LAG(ibi_ms) OVER(PARTITION BY id ORDER BY time_log) AS diff
+FROM
+  `get_ibi`
+),
+
+
+```  
+
+...  
+
+
+#### Heart Rate Sleep Session Alignment  
+
+One extremely important factor was to only investigate HRV when no external factors are affecting the user's heart rate. In other words, to get the best, most accurate reading on user stress levels, we need to understand the HRV of their resting heart rate, when they are truly asleep (sleep_score = 1 sleep).  
+
+The next portion of the Heart Rate query is for joining the Sleep and Heart rate data sets together.
+While the original heart rate data set is checking the difference in IBI's every second, since the user will be asleep and the sleep data set's time logs are separated by 1 minute (during the same sleep session), it would be easier to compare the differences in IBI's every 5 minutes (or 300 seconds).  
+
+Also, since the difference between IBI's can sometimes be negative, we will square them to ensure the difference is a positive number as mentioned in SPIKE's "Understanding HRV Metrics" article explaining the RMSSD formula. [(click here for more details)](https://www.spikeapi.com/blog/understanding-hrv-metrics-a-deep-dive-into-sdnn-and-rmssd#:~:text=for%20healthy%20adults.-,RMSSD:%20Root%20Mean%20Square%20of%20Successive%20Differences,from%2027%20to%2072%20ms.)  
+
+_True Sleep Heart Rate Join Query Example:_  
+
+```sql
+
+square_buckets AS (
+SELECT
+  h.id,
+  h.time_log,
+
+--Create 5-minute "bucket" groupings for ibi data instead of checking every second
+  TIMESTAMP_SECONDS(DIV(UNIX_SECONDS(CAST(h.time_log AS TIMESTAMP)), 300) * 300) AS bucket_time,
+
+--Square the differences in ibi to make sure they are positive
+  POWER(diff, 2) AS diff_sqr,
+
+  s.sleep_id
+FROM
+  `heartbeat_diff` AS h
+INNER JOIN
+  `colin-bellabeat-capstone.bellabeat.clean_sleep_logs` AS s
+  ON h.id = s.id
+  AND DATETIME_TRUNC(h.time_log, MINUTE) = DATETIME_TRUNC(s.time_log, MINUTE)
+WHERE
+  s.sleep_score = 1
+),
+
+```  
+
+...  
+
+#### HRV per Sleep Session  
+
+
+The process continues with a quick aggregation of average HRV per each sleep session night. Afterwards, an average of all nightly HRV averages will be selected, and the standard deviation of each nightly average HRV from the overall average will be passed to the next temp table where the Terra Research recommended Z Score calculation [(click here for more details)](https://tryterra.co/research/descriptive-hrv-using-z-scores) and labeling for stress levels takes place.  
+
+_HRV Z Score Calculation Query Example:_  
+
+```sql
+
+base_calculations AS (
+SELECT
+  id,
+  sleep_id,
+
+--Calculate and select average heart rate variance during each sleep session
+  SQRT(AVG(square_buckets.diff_sqr)) AS nightly_hrv_avg,
+
+FROM
+  `square_buckets`
+GROUP BY
+  id,
+  sleep_id
+),
+
+
+std_dev_calculations AS (
+SELECT *,
+--Compare nightly average HRV to the overall average HRV of all sleep sessions and HRV standard deviation 
+  AVG(nightly_hrv_avg) OVER(PARTITION BY id) AS hrv_overall_avg,
+  STDDEV_SAMP(nightly_hrv_avg) OVER(PARTITION BY id) AS hrv_std_dev,
+
+FROM
+  `base_calculations`
+),
+
+
+stress_labels AS (
+SELECT *,
+--Calculate Z score to understand sleep level stress based on heart beat variance
+(nightly_hrv_avg - hrv_overall_avg) / hrv_std_dev AS stress_score,
+
+--Categorize stress levels per sleep session
+CASE
+  WHEN hrv_std_dev = 0 THEN 'NORMAL' --Prevents dividing by 0
+  WHEN (nightly_hrv_avg - hrv_overall_avg) / hrv_std_dev BETWEEN -1.5 AND -1.0 THEN 'LIGHT STRESS'
+  WHEN (nightly_hrv_avg - hrv_overall_avg) / hrv_std_dev < -1.5 THEN 'HEAVY STRESS'
+  ELSE 'NORMAL' 
+END AS stress_status
+FROM
+  `std_dev_calculations`
+
+WHERE
+--Filter out users who only have 1 sleep session recorded
+  hrv_std_dev IS NOT NULL
+)
+
+```  
+
+...  
+
+#### Sleep Stress Main Query  
+
+Now that all pieces have been laid out it is finally time to put it together. A standard JOIN clause approach was giving me trouble, but eventually with some AI assistance I was able to utilize FROM clause subqueries to join the aggregate sleep data tables from the beginning of this breakdown to the HRV z score and stress label data tables.  
+Examples of aggregate columns selected would include, the best relaxation score (highest positive nightly average HRV deviation from the overall HRV average), best sleep hours (maximum amount of time at sleep_score = 1 sleep in one night session), and heavy stress count (number of times stress score was below -1.5).  
+
+Eventually this newly formed joint table would be joined once more with user activity in R to further analyze stress patterns, sleep cycles and device usage behavior simultaneously. 
+
+_Sleep HRV Stress Query Example:_  
+
+
+
+```sql
+
+FROM (
+  SELECT
+--Grab user id and summarize total number of sleep sessions tracked
+    id,
+    COUNT(sleep_id) AS total_sleep_records,
+--Highlight the narrowest (stressed) and widest (relaxed) fluctuations in users' heart rates during sleep as stress score
+--Between 1 and -1 is standard. Above positive 1 is well relaxed. Less than -1.5 is heavy stress
+    MIN(stress_score) AS worst_stress_score,
+    MAX(stress_score) AS peak_relax_score,
+
+--Count occurences of heavy and light sleep stress per user
+    COUNTIF(stress_status = 'HEAVY STRESS') AS heavy_stress_count,
+    COUNTIF(stress_status = 'LIGHT STRESS') AS light_stress_count
+
+  FROM `stress_labels`
+  GROUP BY
+    id
+) AS a
+
+LEFT JOIN (
+  SELECT 
+    id,
+--Aggregating hours slept per session to find average and best PR for sleep hours per user
+  ROUND(AVG(hr_sleep_per_session), 2) AS avg_nightly_sleep_hours,
+  ROUND(MAX(hr_sleep_per_session), 2) AS best_sleep_hours,    
+  FROM
+    `sleep_bucket`
+  GROUP BY
+    id
+
+)AS b
+  ON a.id = b.id
+
+ORDER BY
+  a.heavy_stress_count DESC
+
+```  
+
+...  
+
+
+
+### R Studio Visualizations  
+
+Following the SQL transformation phase, I imported the processed CSV's [(available on GitHub)](https://github.com/korinmitchell/bellabeat_capstone/tree/main/queried_csv_files) into R using the readr package. All proceeding R Studio scripts can also be found on my [(github)](https://github.com/korinmitchell/bellabeat_capstone/tree/main/R%20scripts).  
+Using dplyr for final data wrangling, I developed the following visualizations to uncover trends for the Leaf Chakra marketing strategy:  
+
+
+
+#### Activity & Performance Trends  
+
+* Average Daily Steps vs. Calories  
+* Device Usage Efficiency Plot  
+* Most Intensely Active Weekday  
+* Highest Caloric Burn Weekday (with Top 2 Zoom)  
+
+#### Health & Wellness Indicators  
+
+* Average Night’s Sleep Distribution  
+* Average Sleep Session Stress Levels  
+* Average Weekly Active Days and Stress Levels  
+* Stress and Weekly Average MVPA (Moderate-to-Vigorous Physical Activity)  
+
+...  
+
+#### Average Daily Steps vs. Calories  
+
+This visualization explores the relationship between movement and energy expenditure. To prepare this data, the user_activity_summary.csv [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/user_activity_summary.csv) was imported using the readr library. A key technical step involved transforming the lancet_rating variable into a factor with specific levels. This was done to ensure the legend displays health categories in a meaningful hierarchy—from "Excellent Health" down to "Health at Risk"—rather than defaulting to alphabetical order.  
+
+The plot utilizes geom_point() to map steps to the x-axis and calories to the y-axis, using both color and shape aesthetics to distinguish between user health ratings. To highlight the overall correlation, a linear regression trend line was added using geom_smooth(method = lm). Finally, annotate() functions were used to call out specific clusters, such as users with high caloric burn despite lower step counts, indicating high-intensity activity.
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Reorder Lancet Rating legend with a specific hierarchy
+user_activity$lancet_rating <- factor(user_activity$lancet_rating,
+                                      levels = c('Excellent Health', 
+                                                 'Great Health', 
+                                                 'Decent Health', 
+                                                 'Health At Risk'))
+
+# Add trend line with custom styling
+geom_smooth(method = lm, 
+            mapping = aes(x = avg_daily_steps, y = avg_daily_cal), 
+            alpha = 0.15, fill = '#7D7ABC', color = alpha('red', .25))
+
+
+```   
+
+![Steps vs. Calories](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/steps_calories_plot.png)
+
+**Leaf Chakra Insight:**  
+The data reveals a High intensity/Lower step count cluster—users who likely engage in stationary workouts like yoga or strength training. Since the Leaf Chakra can be worn as a clip or necklace, it appeals to these users who may find wrist-based trackers restrictive or uncomfortable during specific high-intensity movements. Marketing can emphasize the Leaf’s versatility for diverse workout styles beyond just walking or running.  
+
+...  
+
+#### Device Usage Efficiency Plot  
+
+This analysis examines the relationship between how often a user wears their device and the intensity of their physical activity. The process began by performing a left_join() between device usage data [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/fitbit_usage_rate.csv) and user activity summaries [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/user_activity_summary.csv). Using dplyr, I engineered several new variables, including wk_avg_mvpa (Moderate-to-Vigorous Physical Activity) and an activity_score, which normalizes active minutes against the usage_rate.  
+
+The technical core of this visualization is the use of case_when() to segment users into "Efficiency" categories based on their activity-to-wear-time ratio. The plot uses geom_jitter() to prevent overplotting of data points and incorporates geom_hline() to establish benchmarks based on World Health Organization (WHO) physical activity guidelines. This allows for a quick visual audit of which users are meeting health goals relative to their device commitment.  
+
+_R Code Chunk:_  
+
+```{r}
+
+# Create activity score and efficiency labels
+usage_vs_activity <- usage_vs_activity %>% 
+  mutate(activity_score = ifelse(usage_rate > 0, wk_avg_mvpa / usage_rate, 0)) %>% 
+  mutate(score_labels = case_when(
+    activity_score > 300 ~ 'High Efficiency',
+    activity_score < 50 ~ 'Low Efficiency',
+    activity_score <= 300 & activity_score >= 50 ~ 'Decent Efficiency',
+    TRUE ~ 'No Active Minutes'
+  ))
+
+# Add WHO benchmark lines
+geom_hline(yintercept = 150, linetype = "dashed", color = alpha("#D08F0F", .35), size = 1)
+
+
+```  
+
+![Does more Wear Time = More Activity?](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/device_usage_activity_plot.png)  
+
+**Leaf Chakra Insight:**  
+
+The Low Efficiency segment identifies users who wear their trackers consistently but remain mostly sedentary. For these users, the Leaf Chakra can be marketed not just as a tracker, but as a wellness coach. By leveraging its "Inactivity Alerts" and stress-tracking features, Bellabeat can position the Leaf Chakra as a proactive tool that encourages small, manageable movements throughout the day, turning passive wearers into active participants.  
+
+...  
+
+#### Highest Caloric Burn Weekday + Top 2 Zoom 
+
+This visualization identifies which days of the week users are most physically active by aggregating total calories burnt across the entire study group which was setup in the calories_by_weekday csv file [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/calories_by_weekday.csv). To ensure a logical flow, the day_of_week variable was converted into a factor with levels explicitly set from Sunday to Saturday; without this step, R would default to an alphabetical sort (Fri, Mon, Sat, etc.). 
+Additionally, I provided a "magnified" look at the two highest-performing days of the week to better understand the margin between peak activity levels. Technically, this was achieved by using coord_cartesian() with a specific ylim range (86,000 to 88,500).
+
+The technical implementation uses geom_col() to create a bar chart, with a unique color-coding strategy to highlight peak performance days. I utilized geom_text() paired with the scales::comma shortcut to label each bar with the exact caloric values for precise comparison. Additionally, the y-axis limits were expanded using ylim() to prevent the data labels from being cut off at the top of the plotting area.  
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Reorder day_of_week to follow a standard calendar sequence
+weekday_cal$day_of_week <- factor(weekday_cal$day_of_week,
+                                  levels = c('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'))
+
+# Use geom_text with scales::comma for readable, precise data labels
+geom_text(aes(x = day_of_week, y = calories_by_weekday,
+              label = scales::comma(calories_by_weekday)), 
+          vjust = -.25, fontface = 'plain', size = 3)
+
+
+```   
+
+![Most Overall Active Weekday ](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/weekday_vs_calories_column.png)  
+
+_Zoom Top 2 Version:_  
+
+```{r, eval = FALSE}
+# Magnify the top of the bars to show small differences between peak days
+coord_cartesian(ylim = c(86000, 88500)) +
+
+# Highlight only the specific days of interest on the X-axis
+xlim('Fri' , 'Sat') +
+
+# Bold the labels for maximum readability in the zoomed view
+geom_text(aes(x = day_of_week, y = calories_by_weekday,
+                label = scales::comma(calories_by_weekday)), 
+            vjust = -0.5, fontface = "bold")
+
+```  
+
+![Most Active Weekday - Zoom](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/weekday_vs_calories_zoom.png)
+
+
+**Leaf Chakra Insight:**  
+
+The analysis highlights specific days (like Tuesday and Friday) where caloric expenditure peaks. Bellabeat can use these trends to schedule Motivation Notifications for the Leaf Chakra. For example, on lower-activity days like Monday, the Leaf app could send encouraging prompts to reach a Mid-week Goal, while on high-burn days, it could suggest more stress relieving exercises to help users wind down from high physical output.  
+
+...  
+
+
+#### Most Intensely Active Weekday  
+
+This visualization shifts the focus from group totals to individual user behavior, identifying which specific day of the week each user reached their peak activity intensity. To prepare the data, I used a mutate() function with case_when() to create a new categorical variable, who_compliant, which flags whether a user meets the World Health Organization’s recommended 150 minutes of moderate activity or 75 minutes of vigorous activity per week.  
+
+Technically, this plot is built using geom_bar(), which automatically counts the frequency of users per day. A sophisticated "double-coding" aesthetic was used here: the fill of the bars represents the user's lancet_rating, while the border color (the color aesthetic) indicates WHO compliance. I also applied scale_x_discrete(drop = FALSE) to ensure that even days with zero peak users (like Sunday or Thursday) remain visible on the x-axis, maintaining the full context of the week.  
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Create WHO compliance flag based on activity minutes
+mutate(who_compliant = case_when(
+    wk_avg_very_min >= 75 | wk_avg_fairly_min >= 150 ~ 'Y',
+    TRUE ~ 'N'
+))
+
+# Ensure days with zero counts are not hidden from the visualization
+scale_x_discrete(drop = FALSE)
+
+```  
+
+![Most Intense Weekday per User](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/most_intense_weekday_bar.png)  
+
+**Leaf Chakra Insight:**  
+
+The User Count breakdown shows that while many users peak on Tuesdays and Saturdays, a significant portion of the Health At Risk or Non-Compliant group peaks on Wednesdays. Bellabeat can promote the user motivation by using the Leaf's stress-tracking features alongside activity alerts. Bellabeat can help these users turn their Wednesday "intensity bursts" into more consistent, healthy habits throughout the rest of the week.  
+
+
+...  
+
+
+#### Average Night’s Sleep Distribution  
+
+
+This analysis examines the relationship between physical activity levels and sleep duration across the user base. To prepare this visualization, I performed a left_join() between sleep trend data [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/sleep_amount_calculation.csv) and the previously created user activity summary. A key technical step involved using case_when() to categorize users into "Active" and "Less Active" groups based on the WHO threshold of 150 minutes of combined moderate-to-vigorous activity.  
+
+The visualization is a stacked histogram built with geom_histogram(), using 10 bins to group sleep hours. I used a multi-layered aesthetic approach: the fill represents activity levels, while the alpha (transparency) is mapped to the Lancet Rating. This allows for a visual intersection of activity, sleep, and overall health status.  
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Join data and categorize users by activity thresholds
+sleep_vs_activity <- sleep_trends %>% 
+  left_join(user_activity, by = c('id' = 'Id')) %>% 
+  mutate(activity_label = case_when(
+    (wk_avg_very_min + wk_avg_fairly_min) >= 150.0 ~ 'Active',
+    TRUE ~ 'Less Active'
+  ))
+
+# Use alpha to represent health ratings within the histogram bars
+scale_alpha_manual(
+    name = 'Lancet Rating',
+    breaks = c('Excellent Health', 'Great Health', 'Decent Health'),
+    values = c('Excellent Health' = 1.0, 'Great Health' = 0.55, 'Decent Health' = 0.16)
+)
+
+
+```  
+
+![Average Night's Sleep](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/avg_sleep_histo1.png)  
+
+**Leaf Chakra Insight:**
+
+A lot of the most active users are running on 4.5 to 7 hours of sleep, which is definitely below the recommended 7–9 hours. Instead of just telling them how little they slept, we can market the Leaf as their recovery partner. We can lean into the Leaf’s meditation and stress-tracking features to show active women that while they might not always get more sleep, the Leaf can help them get better quality sleep by helping them wind down properly.  
+
+...  
+
+
+#### Average Sleep Session Stress Levels  
+
+This visualization investigates the intersection of sleep duration and stress levels. To build this, I joined the heartrate_sleep_stress.csv [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/heartrate_sleep_stress.csv) with the user activity summary. One standout component of this script was the mutate() function where I used case_when() logic to categorize users into "Relaxed," "Light Stress," or "Heavy Stress" groups based on heart rate variability data recorded during sleep sessions.  
+
+For the plot, I chose another stacked histogram to show the distribution of sleep hours. By mapping the new stress_level variable to the fill aesthetic and the Lancet Rating to alpha, I created a visual hierarchy that shows not just how long users sleep, but the quality of that time.
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Custom logic to define stress levels based on heart rate counts
+mutate(stress_level = case_when(
+    light_stress_count > 0 & heavy_stress_count == 0 ~ 'Light Stress',
+    heavy_stress_count > 0 ~ 'Heavy Stress',
+    TRUE ~ 'Relaxed'
+))
+
+# Using manual fill to highlight "Heavy Stress" with a high-contrast color
+scale_fill_manual(
+    values = c('Relaxed' = '#349EA3', 'Light Stress' = '#F3A712', 'Heavy Stress' = '#9B0B47')
+)
+
+```  
+
+![Average Night's Sleep Stress](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/avg_night_sleep_stress.png)  
+
+
+**Leaf Chakra Insight:**  
+
+Looking at the data, there’s a trend where almost every user getting less than 6 hours of sleep falls into the "Heavy Stress" category. We can position the Leaf as a Calmness Coach rather than just a tracker. For women trapped in this low-sleep/high-stress cycle, marketing can highlight the Leaf’s deep-breathing exercises and stress-sensitivity alerts as tools to help break that cycle.  
+
+...  
+
+#### Average Weekly Active Days and Stress Levels  
+
+This chart looks at the balance between how many days a week on average users are active and how that correlates with their stress levels. I pulled this together by joining the stress data [(github)](https://github.com/korinmitchell/bellabeat_capstone/blob/main/queried_csv_files/heartrate_sleep_stress.csv) with the main activity summary. Just like the previous sleep analysis, I used a mutate() and case_when() combo to turn the raw HRV averages into easy-to-read "Relaxed," "Light Stress," and "Heavy Stress" labels.  
+
+For the visualization, I built another stacked histogram using geom_histogram(). I used fill to show the stress levels and alpha to layer in the user’s health rating (Lancet Rating). This helps us see if the people who are active more often are actually more stressed, or if they're finding a healthy balance.  
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Organizing users by their weekly active days and stress levels
+ggplot(data = stress_vs_activity) +
+  geom_histogram(mapping = aes(x = avg_wk_active_days,
+                               fill = stress_level,
+                               alpha = lancet_rating),
+                 bins = 10, color = '#534D41') +
+  scale_alpha_manual(values = c('Excellent Health' = 1.0, 
+                               'Great Health' = 0.58, 
+                               'Decent Health' = 0.13))
+
+
+```  
+
+![Average Weekly Active Days + Stress](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/active_days_stress_histo.png)  
+
+**Leaf Chakra Insight:**  
+
+What’s really interesting here is that some of our "Excellent Health" users—the ones hitting their step goals consistently—are actually among the most heavily stressed. It looks like exercising might come at a mental cost for some. We can market Leaf Chakra as the tool that helps you balance intense work outs.The Leaf can help these very active users know when it's time to take a breath and prioritize a "Relaxed" state over just another intense day.  
+
+...  
+
+#### The Stress-Rest Equilibrium  
+
+This final visualization brings everything together, looking at the direct relationship between sleep, high-intensity activity (MVPA), and stress. To prepare the data, I joined the sleep/stress and activity tables and created a new calculated variable, wk_avg_mvpa, by summing fairly active and very active minutes. I then applied the same case_when() logic used in previous steps to categorize users by their stress levels.  
+
+I chose a scatter plot using geom_point() and mapped sleep hours to the x-axis and MVPA minutes to the y-axis, using color to show stress levels and shape for health ratings. To see a broader trend, I added a linear regression line with geom_smooth(). This multi-variable approach lets us see if there is a "tipping point" where too much activitystarts to spike a user's stress levels even when sleeping a good amount.  
+
+_R Code Chunk:_  
+
+```{r, eval = FALSE}
+
+# Summing moderate and vigorous minutes for a total activity metric
+mutate(wk_avg_mvpa = wk_avg_fairly_min + wk_avg_very_min)
+
+# Plotting the three-way relationship between sleep, activity, and stress
+ggplot(data = sleep_stress_activity) +
+  geom_point(mapping = aes(x = avg_nightly_sleep_hours, 
+                           y = wk_avg_mvpa,
+                           color = stress_level,
+                           shape = lancet_rating), size = 4.5)
+
+```  
+
+![MVPA Stress Equilibrium](https://raw.githubusercontent.com/korinmitchell/bellabeat_capstone/refs/heads/main/viz/mvpa_nights_sleep_plot.png) 
+
+**Leaf Chakra Insight:**  
+
+Users who exceeded 500 minutes of MVPA per week seem to hit a Heavy Stress wall. It would be really great to have more users in the data for a visualization for this, because it could be more conclusive regarding the over MVPA minutes stress trend. Instead of just pushing users to do more, the Leaf Chakra can use these insights to tell a user, "You've hit your activity goals this week, but your stress levels are climbing, so let's meditate". It turns the device into a partner that protects a user's mental health as much as their physical fitness.  
+
+...  
+
+## Final Recommendations & Conclusions  
+
+
+While the FitBit data set provided a strong baseline for general activity trends, the following recommendations focus on how Bellabeat can leverage the unique, versatility of the Leaf Chakra to provide a more prescriptive wellness experience.  
+
+...  
+
+
+
+#### 1.) From Description to Prescription  
+
+The data suggests that users often fall into reactive patterns only resting when really tired or overworking on their usual peak days.  
+
+* **Pivot:** Bellabeat should transition from descriptive analytics (what happened) to prescriptive alerts (what to do next).  
+
+* **New Goals:** By syncing activity data with Heart Rate Variability based stress tracking, the Leaf Chakra can proactively suggest recovery days or low-intensity yoga during specific hormonal phases, helping users plan their week around a healthily managed menstrual cycle rather than just hitting a generic step goal.  
+
+#### 2.) Incentivizing Consistency  
+
+My analysis identified specific weekdays where activity dropped across almost all user segments.  
+
+* **Gentle Guide:** Use targeted push notifications to encourage moderate-intensity movement on these low days.  
+
+* **Hidden Benefits:** Data showed that users with consistent moderate activity (5,000+ steps daily) reported lower stress levels than those who performed high-intensity workouts less frequently (3 days a week). Consistency, rather than intensity, appears to be the primary buffer against heavy stress.  
+
+#### 3.) Versatility  
+
+Inconsistent wear time was a major hurdle in the FitBit data, leading to incomplete sleep and stress metrics (as seen with User 707744171, who only logged short sleep bursts). This could have been due to a FitBit's device's uncomfortable design for sleep.  
+
+* **Functional Fashion:** Marketing should emphasize the Leaf Chakra’s versatility. Since it can be worn as a clip, necklace, or potentially even as a bracelet (after market wrist strap), it solves the "wrist fatigue" that causes users to take off traditional trackers, while also attracting active women who do enjoy the bracelet appeal.  
+
+
+#### 4.) Healthy Baseline  
+
+A key finding in this study was that users hitting the highest step counts (7,000–10,000+) often exhibited higher stress levels than those in the moderate range.  
+
+* **More isn't always better:**  Bellabeat can differentiate itself by promoting the Stress-Rest Equilibrium. We should position the Leaf Chakra not as a crazy coach pushing for more steps, but as a wellness partner that helps high achievers recognize when they are approaching a Heavy Stress wall, encouraging them to prioritize recovery to maintain long-term health.  
+
+...  
+
+### Conclusion  
+
+Bellabeat has a unique opportunity to lead the market by focusing on quality of life over quantity of movement. By implementing prescriptive alerts, encouraging consistent moderate activity, and leveraging the versatile wearability of the Leaf Chakra, Bellabeat can provide a personalized support system that empowers women to live in real, accurate harmony with their bodies.
+
+
+
+
+
+
+
+
