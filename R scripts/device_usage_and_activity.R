@@ -24,13 +24,13 @@ usage_vs_activity <- device_usage %>%
   )) %>% 
   
 # Combine fairly active and very active minutes per user    
-  mutate(wk_avg_mpva = 
+  mutate(wk_avg_mvpa = 
            wk_avg_fairly_min + wk_avg_very_min
            ) %>% 
 
 # Calculate the activity score, how truly active a user is with their potential 
   mutate(activity_score = ifelse( usage_rate > 0,
-           wk_avg_mpva / usage_rate)) %>% 
+           wk_avg_mvpa / usage_rate)) %>% 
  
 # Set up activity labels based on activity score for color segmentation   
   mutate(score_labels = case_when(
@@ -48,13 +48,13 @@ usage_vs_activity <- device_usage %>%
 
 # Create plot showing intense activity vs. daily device wearing rate per user
 ggplot(data = usage_vs_activity)+
-  geom_jitter(mapping = aes(x = usage_rate, y = wk_avg_mpva, 
+  geom_jitter(mapping = aes(x = usage_rate, y = wk_avg_mvpa, 
                            color = score_labels, shape = score_labels),
              size = 3.5)+
   
   
   geom_smooth(method = lm,
-              mapping = aes(x = usage_rate, y = wk_avg_mpva),
+              mapping = aes(x = usage_rate, y = wk_avg_mvpa),
               alpha = 0, color = alpha('#196E81', 0.15))+
   
 
@@ -110,7 +110,7 @@ ggplot(data = usage_vs_activity)+
     title = 'Is More Wear Time Equal to More Activity?', 
     subtitle = 'Weekly vigorous activity against daily device wearing habits',
     x = 'Daily Device Wear Rate',
-    y = 'Average Weekly MPVA (minutes)'
+    y = 'Average Weekly MVPA (minutes)'
   )+
   
   annotate('text', x = 0.75, y = 30, 
