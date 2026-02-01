@@ -11,8 +11,9 @@ While Bellabeat offers several products, this analysis specifically focuses on t
 Analyze smart device usage data to understand how consumers are using their wearables, and apply those insights to influence the marketing strategy for the Leaf Chakra.
 
 ### 🛠️ Tools Used
-* **R (RStudio)** for Data Cleaning, Transformation, and Visualization.
-* **Tidyverse, Lubridate, and Ggplot2** packages.
+* **SQL (BigQuery)** for Data Cleaning, and Transformation
+* **R (RStudio)** for Transformation, and Visualization.
+* **Tidyverse, dplyr, readr and ggplot2** packages.
 * **FitBit Fitness Tracker Data** (via Kaggle).
 
 ###  Key Questions
