@@ -2,7 +2,7 @@
 ## How Non-Bellabeat Smart Device Trends Can Guide Marketing Strategy
 
 ### Project Overview
-This project is part of my Google Data Analytics Capstone. I am analyzing Fitbit fitness tracker data to identify consumer habits that can help Bellabeat—a high-tech manufacturer of health-focused products for women—refine its marketing strategy.
+This project is part of my Google Data Analytics Capstone. I am analyzing FitBit fitness tracker data to identify consumer habits that can help Bellabeat—a high-tech manufacturer of health-focused products for women—refine its marketing strategy.
 
 ### 🌿 Primary Focus: Leaf Chakra
 While Bellabeat offers several products, this analysis specifically focuses on the **Leaf Chakra**. The Leaf Chakra is a unique wellness tracker that can be worn as a necklace or clip, focusing on tracking activity, sleep, and stress through a nature-inspired design.
