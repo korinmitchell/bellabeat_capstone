@@ -14,7 +14,7 @@ library('readr')
 
 ...  
 
-## Google Analytics Case Study: Bellabeat  
+## Google Data Analytics Case Study: Bellabeat  
 
 
 
@@ -1128,6 +1128,7 @@ A key finding in this study was that users hitting the highest step counts (7,00
 ### Conclusion  
 
 Bellabeat has a unique opportunity to lead the market by focusing on quality of life over quantity of movement. By implementing prescriptive alerts, encouraging consistent moderate activity, and leveraging the versatile wearability of the Leaf Chakra, Bellabeat can provide a personalized support system that empowers women to live in real, accurate harmony with their bodies.
+
 
 
 
